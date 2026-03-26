@@ -12,26 +12,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Helm 매니페스트 레포지토리 체크아웃
+      # 1. Helm 매니페스트 레포지토리 체크아웃 (PAT 사용)
       - name: Checkout Helm repository
         uses: actions/checkout@v4
         with:
           repository: ekchoi391204/app-helm
           ref: main
-          token: ${{ secrets.GH_TOKEN }} 
+          token: ${{ secrets.GH_TOKEN }}
 
       # 2. 커밋 메시지 정제 및 values.yaml 업데이트
       - name: Update image tag in values.yaml
         run: |
-          # CI 워크플로우를 발생시킨 원본 커밋 메시지 추출
+          # CI를 트리거한 원본 커밋 메시지에서 안전한 태그 추출
           RAW_MSG="${{ github.event.workflow_run.head_commit.message }}"
           SAFE_TAG=$(echo "$RAW_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
           
           echo "Updating Helm tag to: $SAFE_TAG"
           
-          # yq가 설치된 환경이므로 yq를 사용하는 것이 가장 안전합니다.
-          # 만약 yq가 없다면 아래 sed 또는 awk 명령어를 사용하세요.
-          sed -i "s/tag: .*/tag: ${SAFE_TAG}/g" values.yaml
+          # 정확한 파일 경로 설정
+          TARGET_FILE="charts/myapp/values.yaml"
+          
+          if [ -f "$TARGET_FILE" ]; then
+            # 'tag: ' 부분을 찾아 업데이트
+            sed -i "s/tag: .*/tag: ${SAFE_TAG}/g" "$TARGET_FILE"
+            echo "Successfully updated $TARGET_FILE"
+          else
+            echo "Error: $TARGET_FILE not found!"
+            find . -name "values.yaml" # 경로 확인을 위한 디버깅용
+            exit 1
+          fi
 
       # 3. Git 설정 및 푸시
       - name: Commit and push changes
@@ -39,6 +48,13 @@ jobs:
           git config --global user.name "ekchoi391204"
           git config --global user.email "ekchoi391204@gmail.com"
           
-          git add values.yaml
-          git commit -m "chore: update image tag to ${{ github.event.workflow_run.head_commit.id }} [skip ci]" || echo "No changes to commit"
-          git push origin main
+          # 수정된 파일 경로를 명확히 추가
+          git add charts/myapp/values.yaml
+          
+          # 변경사항이 있는 경우에만 커밋 및 푸시 진행
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update image tag to $SAFE_TAG [skip ci]"
+            git push origin main
+          fi
