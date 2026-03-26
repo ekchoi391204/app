@@ -8,41 +8,41 @@ on:
 
 jobs:
   update-helm-repo:
+    # CI 워크플로우가 성공했을 때만 실행
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Helm 매니페스트 레포지토리 체크아웃 (PAT 사용)
       - name: Checkout Helm repository
         uses: actions/checkout@v4
         with:
           repository: ekchoi391204/app-helm
           ref: main
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }} # GitHub Settings에 등록한 PAT Secret
 
-      - name: Update image tag in values.yaml
+      # 2. app: 하위의 image: 값만 정교하게 수정
+      - name: Update app image in values.yaml
         run: |
-          # 1. 커밋 메시지 추출 및 확인
+          # CI를 발생시킨 원본 커밋 메시지에서 태그 추출
           RAW_MSG="${{ github.event.workflow_run.head_commit.message }}"
-          # 메시지가 비어있을 경우를 대비해 'latest' 등 기본값 설정 가능
           SAFE_TAG=$(echo "$RAW_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
-          
           if [ -z "$SAFE_TAG" ]; then SAFE_TAG="latest"; fi
-          echo "Extracted Tag: $SAFE_TAG"
-
-          TARGET_FILE="charts/myapp/values.yaml"
-
-          # 2. 파일 수정 전 내용 확인 (디버깅용)
-          echo "--- Before Update ---"
-          cat "$TARGET_FILE"
           
-          # 3. sed 명령어 개선 (공백 대응 및 정확한 매칭)
-          # 'tag:'로 시작하는 라인 전체를 '  tag: SAFE_TAG'로 교체
-          sed -i "s/^[[:space:]]*tag:.*/  tag: ${SAFE_TAG}/g" "$TARGET_FILE"
+          # 업데이트할 전체 이미지 주소
+          NEW_IMAGE="ekchoi3912/was1:${SAFE_TAG}"
+          TARGET_FILE="charts/myapp/values.yaml"
+          
+          echo "Updating $TARGET_FILE with image: $NEW_IMAGE"
 
-          # 4. 파일 수정 후 내용 확인 (디버깅용)
-          echo "--- After Update ---"
-          cat "$TARGET_FILE"
+          # [중요] app: 라인을 찾고, 바로 다음 줄의 image: 값을 교체 (인덴트 2칸 기준)
+          sed -i "/^app:/!b;n;s|[[:space:]]*image:.*|  image: ${NEW_IMAGE}|" "$TARGET_FILE"
 
+          # 수정 결과 확인 로그
+          echo "--- Verification ---"
+          grep -A 1 "^app:" "$TARGET_FILE"
+
+      # 3. 변경사항 푸시
       - name: Commit and push changes
         run: |
           git config --global user.name "ekchoi391204"
@@ -50,12 +50,10 @@ jobs:
           
           git add charts/myapp/values.yaml
           
-          # 변경사항 확인 로그
-          git status
-          
+          # 변경 사항이 있는 경우에만 커밋/푸시
           if git diff --staged --quiet; then
-            echo "No changes detected in values.yaml. Check if sed matched the pattern."
+            echo "No changes to commit. Pattern match might have failed."
           else
-            git commit -m "chore: update image tag to ${{ github.event.workflow_run.head_commit.id }} [skip ci]"
+            git commit -m "chore: update app image to $SAFE_TAG [skip ci]"
             git push origin main
           fi
