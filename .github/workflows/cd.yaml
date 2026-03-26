@@ -18,7 +18,7 @@ jobs:
         with:
           repository: ekchoi391204/app-helm
           ref: main
-          token: ${{ secrets.TOKEN }} # GitHub Personal Access Token(PAT) 필요
+          token: ${{ secrets.GH_TOKEN }} 
 
       # 2. 커밋 메시지 정제 및 values.yaml 업데이트
       - name: Update image tag in values.yaml
