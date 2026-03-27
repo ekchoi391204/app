@@ -60,3 +60,16 @@ jobs:
             git commit -m "chore: update image to $SAFE_TAG [skip ci]"
             git push origin main
           fi
+      # 최종 성공 알림
+      - name: Slack Notification
+        if: always()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: ${{ job.status == 'success' && '#36a64f' || '#ff0000' }}
+          SLACK_TITLE: "🚀 Helm Deployment Updated"
+          SLACK_MESSAGE: |
+            *Result:* ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }}
+            *Image:* `${{ env.NEW_IMAGE }}`
+            *Action:* ${{ env.CHANGED == 'true' && 'Manifest Updated' || 'No changes needed' }}
+          SLACK_FOOTER: "CI/CD Pipeline"          
