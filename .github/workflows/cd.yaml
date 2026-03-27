@@ -67,9 +67,12 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_COLOR: ${{ job.status == 'success' && '#36a64f' || '#ff0000' }}
-          SLACK_TITLE: "🚀 Helm Deployment Updated"
+          SLACK_TITLE: "Helm Repo Update Status: ${{ job.status }}"
           SLACK_MESSAGE: |
             *Result:* ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }}
-            *Image:* `${{ env.NEW_IMAGE }}`
+            *Image Tag:* `${{ env.SAFE_TAG }}`
             *Action:* ${{ env.CHANGED == 'true' && 'Manifest Updated' || 'No changes needed' }}
-          SLACK_FOOTER: "CI/CD Pipeline"          
+            ---
+            *Next Step:*
+            📢 *Please check the ArgoCD dashboard to confirm the sync status.*
+          SLACK_FOOTER: "CI/CD Pipeline | ArgoCD Sync Required"
