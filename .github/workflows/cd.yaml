@@ -55,7 +55,7 @@ jobs:
             echo "CHANGED=false" >> $GITHUB_ENV
             echo "No changes to commit."
           else
-            git commit -m "chore: update image to $SAFE_TAG [skip ci]"
+            git commit -m "chore: update image to $SAFE_TAG"
             git push origin main
             echo "CHANGED=true" >> $GITHUB_ENV
           fi
