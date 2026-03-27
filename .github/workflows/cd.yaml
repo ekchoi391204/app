@@ -1,62 +1,62 @@
-# name: CD
+name: CD
 
-# on:
-#   workflow_run:
-#     workflows: ["CI"]
-#     types:
-#       - completed
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
 
-# jobs:
-#   update-helm-repo:
-#     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-#     runs-on: ubuntu-latest
+jobs:
+  update-helm-repo:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
 
-#     steps:
-#       # 1. Helm 매니페스트 레포지토리 체크아웃
-#       - name: Checkout Helm repository
-#         uses: actions/checkout@v4
-#         with:
-#           repository: ekchoi391204/app-helm
-#           ref: main
-#           token: ${{ secrets.GH_TOKEN }}
+    steps:
+      # 1. Helm 매니페스트 레포지토리 체크아웃
+      - name: Checkout Helm repository
+        uses: actions/checkout@v4
+        with:
+          repository: ekchoi391204/app-helm
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
 
-#       # 2. app: 하위의 image: 주소를 시크릿 변수(계정, 레포명)를 사용하여 수정
-#       - name: Update app image in values.yaml
-#         run: |
-#           # CI를 발생시킨 원본 커밋 메시지에서 태그 추출
-#           RAW_MSG="${{ github.event.workflow_run.head_commit.message }}"
-#           SAFE_TAG=$(echo "$RAW_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
-#           if [ -z "$SAFE_TAG" ]; then SAFE_TAG="latest"; fi
+      # 2. app: 하위의 image: 주소를 시크릿 변수(계정, 레포명)를 사용하여 수정
+      - name: Update app image in values.yaml
+        run: |
+          # CI를 발생시킨 원본 커밋 메시지에서 태그 추출
+          RAW_MSG="${{ github.event.workflow_run.head_commit.message }}"
+          SAFE_TAG=$(echo "$RAW_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
+          if [ -z "$SAFE_TAG" ]; then SAFE_TAG="latest"; fi
           
-#           # 시크릿 변수들을 조합하여 이미지 주소 구성
-#           # DOCKER_USERNAME: ekchoi3912
-#           # DOCKER_REPO: app
-#           DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
-#           DOCKER_REPO="${{ secrets.DOCKER_REPO }}"
+          # 시크릿 변수들을 조합하여 이미지 주소 구성
+          # DOCKER_USERNAME: ekchoi3912
+          # DOCKER_REPO: app
+          DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
+          DOCKER_REPO="${{ secrets.DOCKER_REPO }}"
           
-#           NEW_IMAGE="${DOCKER_USER}/${DOCKER_REPO}:${SAFE_TAG}"
-#           TARGET_FILE="charts/myapp/values.yaml"
+          NEW_IMAGE="${DOCKER_USER}/${DOCKER_REPO}:${SAFE_TAG}"
+          TARGET_FILE="charts/myapp/values.yaml"
           
-#           echo "Updating $TARGET_FILE with image: $NEW_IMAGE"
+          echo "Updating $TARGET_FILE with image: $NEW_IMAGE"
 
-#           # app: 라인을 찾고, 바로 다음 줄의 image: 값을 교체 (인덴트 2칸 기준)
-#           sed -i "/^app:/!b;n;s|[[:space:]]*image:.*|  image: ${NEW_IMAGE}|" "$TARGET_FILE"
+          # app: 라인을 찾고, 바로 다음 줄의 image: 값을 교체 (인덴트 2칸 기준)
+          sed -i "/^app:/!b;n;s|[[:space:]]*image:.*|  image: ${NEW_IMAGE}|" "$TARGET_FILE"
 
-#           # 수정 결과 확인 (보안상 계정명 등은 로그에서 ***로 보일 수 있습니다)
-#           echo "--- Verification ---"
-#           grep -A 1 "^app:" "$TARGET_FILE"
+          # 수정 결과 확인 (보안상 계정명 등은 로그에서 ***로 보일 수 있습니다)
+          echo "--- Verification ---"
+          grep -A 1 "^app:" "$TARGET_FILE"
 
-#       # 3. 변경사항 커밋 및 푸시
-#       - name: Commit and push changes
-#         run: |
-#           git config --global user.name "ekchoi391204"
-#           git config --global user.email "ekchoi391204@gmail.com"
+      # 3. 변경사항 커밋 및 푸시
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "ekchoi391204"
+          git config --global user.email "ekchoi391204@gmail.com"
           
-#           git add charts/myapp/values.yaml
+          git add charts/myapp/values.yaml
           
-#           if git diff --staged --quiet; then
-#             echo "No changes to commit."
-#           else
-#             git commit -m "chore: update image to $SAFE_TAG [skip ci]"
-#             git push origin main
-#           fi
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update image to $SAFE_TAG [skip ci]"
+            git push origin main
+          fi
