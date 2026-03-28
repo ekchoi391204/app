@@ -1,11 +1,45 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: jenkins-kaniko
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:latest
+      command:
+        - /busybox/cat
+      tty: true
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+    - name: kubectl
+      image: bitnami/kubectl:latest
+      command:
+        - cat
+      tty: true
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: kaniko-docker-config
+        items:
+          - key: config.json
+            path: config.json
+"""
+        }
+    }
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'frodo'
-        K8S_DEPLOYMENT_NAME = 'myapp'
-        K8S_CONTAINER_NAME = 'myapp'
+        EKS_CLUSTER_NAME = 'your-eks-cluster'
+        K8S_DEPLOYMENT_NAME = 'your-deployment'
+        K8S_CONTAINER_NAME = 'your-container'
+        DOCKER_USERNAME = 'ekchoi391204'
         DOCKER_REPO = 'app'
     }
 
@@ -38,71 +72,36 @@ pipeline {
             }
         }
 
-        stage('Docker Login') {
+        stage('Build and Push Image with Kaniko') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',
-                    usernameVariable: 'DOCKER_USERNAME',
-                    passwordVariable: 'DOCKER_PASSWORD'
-                )]) {
-                    sh '''
-                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-                    '''
-                }
-            }
-        }
-
-        stage('Build and Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',
-                    usernameVariable: 'DOCKER_USERNAME',
-                    passwordVariable: 'DOCKER_PASSWORD'
-                )]) {
-                    sh '''
-                        docker build -t $DOCKER_USERNAME/$DOCKER_REPO:$COMMIT_TAG .
-                        docker tag $DOCKER_USERNAME/$DOCKER_REPO:$COMMIT_TAG $DOCKER_USERNAME/$DOCKER_REPO:latest
-
-                        docker push $DOCKER_USERNAME/$DOCKER_REPO:$COMMIT_TAG
-                        docker push $DOCKER_USERNAME/$DOCKER_REPO:latest
-                    '''
+                container('kaniko') {
+                    sh """
+                      /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=${WORKSPACE} \
+                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG} \
+                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
+                    """
                 }
             }
         }
 
         stage('Deploy to EKS') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY'),
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )])
-                ]) {
-                    sh '''
-                        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-
-                        kubectl set image deployment/$K8S_DEPLOYMENT_NAME \
-                          $K8S_CONTAINER_NAME=$DOCKER_USERNAME/$DOCKER_REPO:$COMMIT_TAG
-
-                        kubectl rollout status deployment/$K8S_DEPLOYMENT_NAME
-                    '''
+                container('kubectl') {
+                    withCredentials([
+                        string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                    ]) {
+                        sh """
+                          aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
+                          kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
+                            ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG}
+                          kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
+                        """
+                    }
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            sh 'docker logout || true'
-        }
-        success {
-            echo 'Build and deployment completed successfully.'
-        }
-        failure {
-            echo 'Build or deployment failed.'
         }
     }
 }
