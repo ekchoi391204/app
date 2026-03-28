@@ -1,80 +1,80 @@
-# name: CD
+name: CD
 
-# on:
-#   workflow_run:
-#     workflows: ["CI"]
-#     types:
-#       - completed
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
 
-# jobs:
-#   update-helm-repo:
-#     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-#     runs-on: ubuntu-latest
+jobs:
+  update-helm-repo:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
 
-#     steps:
-#       # 1. Helm 매니페스트 레포지토리 체크아웃
-#       - name: Checkout Helm repository
-#         uses: actions/checkout@v4
-#         with:
-#           repository: ekchoi391204/app-helm
-#           ref: main
-#           token: ${{ secrets.GH_TOKEN }}
+    steps:
+      # 1. Helm 매니페스트 레포지토리 체크아웃
+      - name: Checkout Helm repository
+        uses: actions/checkout@v4
+        with:
+          repository: ekchoi391204/app-helm
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
 
-#       # 2. CI 커밋 메시지 추출 및 이미지 주소 수정
-#       - name: Update app image in values.yaml
-#         id: update_tag
-#         run: |
-#           # CI를 발생시킨 원본 커밋 메시지 전체 추출
-#           ORIGINAL_MSG="${{ github.event.workflow_run.head_commit.message }}"
+      # 2. CI 커밋 메시지 추출 및 이미지 주소 수정
+      - name: Update app image in values.yaml
+        id: update_tag
+        run: |
+          # CI를 발생시킨 원본 커밋 메시지 전체 추출
+          ORIGINAL_MSG="${{ github.event.workflow_run.head_commit.message }}"
           
-#           # 태그용 (특수문자 제거)
-#           SAFE_TAG=$(echo "$ORIGINAL_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
-#           if [ -z "$SAFE_TAG" ]; then SAFE_TAG="latest"; fi
+          # 태그용 (특수문자 제거)
+          SAFE_TAG=$(echo "$ORIGINAL_MSG" | tr -dc '[:alnum:]' | cut -c1-50)
+          if [ -z "$SAFE_TAG" ]; then SAFE_TAG="latest"; fi
           
-#           DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
-#           DOCKER_REPO="${{ secrets.DOCKER_REPO }}"
-#           NEW_IMAGE="${DOCKER_USER}/${DOCKER_REPO}:${SAFE_TAG}"
-#           TARGET_FILE="charts/myapp/values.yaml"
+          DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
+          DOCKER_REPO="${{ secrets.DOCKER_REPO }}"
+          NEW_IMAGE="${DOCKER_USER}/${DOCKER_REPO}:${SAFE_TAG}"
+          TARGET_FILE="charts/myapp/values.yaml"
           
-#           # 파일 수정
-#           sed -i "/^app:/!b;n;s|[[:space:]]*image:.*|  image: ${NEW_IMAGE}|" "$TARGET_FILE"
+          # 파일 수정
+          sed -i "/^app:/!b;n;s|[[:space:]]*image:.*|  image: ${NEW_IMAGE}|" "$TARGET_FILE"
           
-#           # 슬랙 알림에서 사용하기 위해 환경 변수에 저장
-#           echo "SAFE_TAG=$SAFE_TAG" >> $GITHUB_ENV
-#           echo "ORIGINAL_MSG=$ORIGINAL_MSG" >> $GITHUB_ENV
+          # 슬랙 알림에서 사용하기 위해 환경 변수에 저장
+          echo "SAFE_TAG=$SAFE_TAG" >> $GITHUB_ENV
+          echo "ORIGINAL_MSG=$ORIGINAL_MSG" >> $GITHUB_ENV
 
-#       # 3. 변경사항 커밋 및 푸시
-#       - name: Commit and push changes
-#         run: |
-#           git config --global user.name "ekchoi391204"
-#           git config --global user.email "ekchoi391204@gmail.com"
+      # 3. 변경사항 커밋 및 푸시
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "ekchoi391204"
+          git config --global user.email "ekchoi391204@gmail.com"
           
-#           git add charts/myapp/values.yaml
+          git add charts/myapp/values.yaml
           
-#           if git diff --staged --quiet; then
-#             echo "CHANGED=false" >> $GITHUB_ENV
-#             echo "No changes to commit."
-#           else
-#             git commit -m "chore: update image to $SAFE_TAG"
-#             git push origin main
-#             echo "CHANGED=true" >> $GITHUB_ENV
-#           fi
+          if git diff --staged --quiet; then
+            echo "CHANGED=false" >> $GITHUB_ENV
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update image to $SAFE_TAG"
+            git push origin main
+            echo "CHANGED=true" >> $GITHUB_ENV
+          fi
 
-#       # 4. 최종 성공 알림 (CI 커밋 메시지 포함)
-#       - name: Slack Notification
-#         if: always()
-#         uses: rtCamp/action-slack-notify@v2
-#         env:
-#           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-#           SLACK_COLOR: ${{ job.status == 'success' && '#36a64f' || '#ff0000' }}
-#           SLACK_TITLE: "Helm Repo Update Status: ${{ job.status }}"
-#           SLACK_MESSAGE: |
-#             *Result:* ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }}
-#             *CI Commit Message:* `${{ env.ORIGINAL_MSG }}`
-#             *Image Tag:* `${{ env.SAFE_TAG }}`
-#             *Action:* ${{ env.CHANGED == 'true' && 'Manifest Updated' || 'No changes needed' }}
+      # 4. 최종 성공 알림 (CI 커밋 메시지 포함)
+      - name: Slack Notification
+        if: always()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_COLOR: ${{ job.status == 'success' && '#36a64f' || '#ff0000' }}
+          SLACK_TITLE: "Helm Repo Update Status: ${{ job.status }}"
+          SLACK_MESSAGE: |
+            *Result:* ${{ job.status == 'success' && '✅ Success' || '❌ Failed' }}
+            *CI Commit Message:* `${{ env.ORIGINAL_MSG }}`
+            *Image Tag:* `${{ env.SAFE_TAG }}`
+            *Action:* ${{ env.CHANGED == 'true' && 'Manifest Updated' || 'No changes needed' }}
             
-#             ---
-#             *Next Step:*
-#             📢 *Please check the ArgoCD dashboard to confirm the sync status.*
-#           SLACK_FOOTER: "CI/CD Pipeline | ArgoCD Sync Required"
+            ---
+            *Next Step:*
+            📢 *Please check the ArgoCD dashboard to confirm the sync status.*
+          SLACK_FOOTER: "CI/CD Pipeline | ArgoCD Sync Required"
