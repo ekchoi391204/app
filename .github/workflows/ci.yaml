@@ -39,6 +39,8 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:${{ env.COMMIT_TAG }}
             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max  
 
       # 4. AWS 자격 증명 설정
       - name: Configure AWS Credentials
