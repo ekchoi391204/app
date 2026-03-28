@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    app: jenkins-kaniko
+    jenkins: slave
 spec:
   serviceAccountName: jenkins
   containers:
@@ -18,15 +18,18 @@ spec:
         - name: docker-config
           mountPath: /kaniko/.docker
     - name: aws-kubectl
-      image: bitnami/kubectl:latest # 또는 amazon/aws-cli:latest (환경에 맞춰 선택)
+      image: amazon/aws-cli:latest
       command: ["cat"]
       tty: true
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-3-jdk21
       env:
-        # 에이전트가 접속할 마스터 URL을 ELB 주소로 강제 지정
+        # 1. 논리적 주소 (ELB 주소)
         - name: JENKINS_URL
           value: "http://k8s-jenkins-jenkins-d36603890d-3a5db5674f925c53.elb.ap-northeast-2.amazonaws.com:8080/"
+        # 2. 물리적 통신 주소 (내부 서비스 DNS로 직결하여 포트 차단 해결)
+        - name: JENKINS_TUNNEL
+          value: "jenkins.jenkins.svc.cluster.local:50000"
   volumes:
     - name: docker-config
       secret:
@@ -40,9 +43,9 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'your-eks-cluster' // 실제 EKS 클러스터명으로 변경
-        K8S_DEPLOYMENT_NAME = 'your-deployment'
-        K8S_CONTAINER_NAME = 'your-container'
+        EKS_CLUSTER_NAME = 'my-eks-cluster' // 실제 EKS 클러스터 이름으로 수정
+        K8S_DEPLOYMENT_NAME = 'myapp'       // 실제 배포 이름으로 수정
+        K8S_CONTAINER_NAME = 'myapp'
         DOCKER_USERNAME = 'ekchoi391204'
         DOCKER_REPO = 'app'
     }
@@ -54,30 +57,22 @@ spec:
             }
         }
 
-        stage('Get Commit Tag') {
-            steps {
-                script {
-                    try {
-                        def rawMsg = sh(script: "git log -1 --pretty=%B | tr -dc '[:alnum:]' | cut -c1-50", returnStdout: true).trim()
-                        env.COMMIT_TAG = rawMsg ?: "build-${env.BUILD_NUMBER}"
-                    } catch (e) {
-                        env.COMMIT_TAG = "build-${env.BUILD_NUMBER}"
-                    }
-                    echo "Final COMMIT_TAG: ${env.COMMIT_TAG}"
-                }
-            }
-        }
-
         stage('Build and Push Image') {
             steps {
                 container('kaniko') {
-                    sh """
-                    /kaniko/executor \
-                      --dockerfile=Dockerfile \
-                      --context=${WORKSPACE} \
-                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.COMMIT_TAG} \
-                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
-                    """
+                    script {
+                        // 커밋 해시를 태그로 사용
+                        def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                        env.IMAGE_TAG = commitHash
+                        
+                        sh """
+                        /kaniko/executor \
+                          --dockerfile=Dockerfile \
+                          --context=${WORKSPACE} \
+                          --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG} \
+                          --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
+                        """
+                    }
                 }
             }
         }
@@ -85,18 +80,16 @@ spec:
         stage('Deploy to EKS') {
             steps {
                 container('aws-kubectl') {
-                    // Jenkins Credentials에 등록된 ID (aws-credentials-id) 사용
                     withCredentials([
-                        usernamePassword(credentialsId: 'aws-credentials-id', 
+                        usernamePassword(credentialsId: 'aws-credentials-id', // Jenkins에 등록한 AWS Credential ID
                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY', 
                                          usernameVariable: 'AWS_ACCESS_KEY_ID')
                     ]) {
                         sh """
-                        # AWS CLI가 설치되어 있다고 가정 (필요시 설치 로직 추가)
                         aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
                         
                         kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
-                          ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.COMMIT_TAG}
+                          ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG}
                         
                         kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
                         """
