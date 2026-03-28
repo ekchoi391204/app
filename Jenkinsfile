@@ -14,7 +14,10 @@ spec:
     - name: kaniko
       image: gcr.io/kaniko-project/executor:latest
       command:
-        - cat
+        - /busybox/sh
+      args:
+        - -c
+        - sleep 9999999
       tty: true
       volumeMounts:
         - name: docker-config
@@ -23,7 +26,10 @@ spec:
     - name: deploy
       image: amazon/aws-cli:2.15.0
       command:
-        - cat
+        - sh
+      args:
+        - -c
+        - sleep 9999999
       tty: true
 
   volumes:
@@ -39,11 +45,11 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'frodo'                // 본인 클러스터명
-        K8S_DEPLOYMENT_NAME = 'myapp'             // Deployment 이름
-        K8S_CONTAINER_NAME = 'myapp'              // 컨테이너 이름
-        DOCKER_USERNAME = 'ekchoi391204'          // Docker Hub ID
-        DOCKER_REPO = 'app'                       // 레포 이름
+        EKS_CLUSTER_NAME = 'frodo'
+        K8S_DEPLOYMENT_NAME = 'myapp'
+        K8S_CONTAINER_NAME = 'myapp'
+        DOCKER_USERNAME = 'ekchoi391204'
+        DOCKER_REPO = 'app'
     }
 
     triggers {
@@ -51,7 +57,6 @@ spec:
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 checkout scm
@@ -81,7 +86,7 @@ spec:
                 container('kaniko') {
                     sh """
                       /kaniko/executor \
-                        --dockerfile=Dockerfile \
+                        --dockerfile=${WORKSPACE}/Dockerfile \
                         --context=${WORKSPACE} \
                         --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG} \
                         --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest \
@@ -99,6 +104,9 @@ spec:
                         string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
                     ]) {
                         sh """
+                          curl -LO https://dl.k8s.io/release/v1.29.14/bin/linux/amd64/kubectl
+                          install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
                           aws eks update-kubeconfig \
                             --name ${EKS_CLUSTER_NAME} \
                             --region ${AWS_REGION}
@@ -116,10 +124,10 @@ spec:
 
     post {
         success {
-            echo '🚀 CI/CD SUCCESS'
+            echo 'CI/CD SUCCESS'
         }
         failure {
-            echo '❌ CI/CD FAILED'
+            echo 'CI/CD FAILED'
         }
     }
 }
