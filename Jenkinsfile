@@ -43,7 +43,7 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'frodor' // 실제 EKS 클러스터 이름으로 수정
+        EKS_CLUSTER_NAME = 'frodo' // 실제 EKS 클러스터 이름으로 수정
         K8S_DEPLOYMENT_NAME = 'myapp'       // 실제 배포 이름으로 수정
         K8S_CONTAINER_NAME = 'myapp'
         DOCKER_USERNAME = 'ekchoi391204'
