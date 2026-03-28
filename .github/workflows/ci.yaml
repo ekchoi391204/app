@@ -8,7 +8,7 @@ on:
       - '.github/workflows/*'  
 
 jobs:
-  build-and-push: # job 이름을 build-and-push로 명확히 변경했습니다.
+  build-and-push: 
     runs-on: ubuntu-latest
 
     steps:
@@ -40,24 +40,24 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:${{ env.COMMIT_TAG }}
             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
 
-      # # 4. AWS 자격 증명 설정
-      # - name: Configure AWS Credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      #     aws-region: ${{ secrets.AWS_REGION }}
+      # 4. AWS 자격 증명 설정
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # # 5. EKS kubeconfig 업데이트
-      # - name: Update Kubeconfig
-      #   run: |
-      #     aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+      # 5. EKS kubeconfig 업데이트
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
 
-      # # 6. EKS Deployment 이미지 업데이트
-      # - name: Deploy to EKS
-      #   run: |
-      #     # deployment/myapp 내의 특정 컨테이너(K8S_CONTAINER_NAME) 이미지를 교체
-      #     kubectl set image deployment/myapp ${{ secrets.K8S_CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/app:${{ env.COMMIT_TAG }}
+      # 6. EKS Deployment 이미지 업데이트
+      - name: Deploy to EKS
+        run: |
+          # deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}내의 특정 컨테이너(K8S_CONTAINER_NAME) 이미지를 교체
+          kubectl set image deployment/${{ secrets.K8S_DEPLOYMENT_NAME }} ${{ secrets.K8S_CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/app:${{ env.COMMIT_TAG }}
           
-      #     # 배포 완료 대기 및 상태 확인
-      #     kubectl rollout status deployment/myapp
+          # 배포 완료 대기 및 상태 확인
+          kubectl rollout status deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}
