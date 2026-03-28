@@ -4,9 +4,6 @@ pipeline {
             yaml """
 apiVersion: v1
 kind: Pod
-metadata:
-  labels:
-    jenkins: slave
 spec:
   serviceAccountName: jenkins
   containers:
@@ -41,9 +38,9 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'frodo' // 실제 클러스터명으로 변경 (예: eks-cluster)
+        EKS_CLUSTER_NAME = 'frodo'          // 클러스터 이름 반영
         K8S_DEPLOYMENT_NAME = 'myapp'       // 실제 배포된 Deployment 이름
-        K8S_CONTAINER_NAME = 'myapp'        // Deployment 내의 컨테이너 이름
+        K8S_CONTAINER_NAME = 'myapp'        // Deployment 내 컨테이너 이름
         DOCKER_USERNAME = 'ekchoi391204'
         DOCKER_REPO = 'app'
     }
@@ -57,14 +54,13 @@ spec:
 
         stage('Build and Push Image') {
             steps {
-                // 1. git이 있는 jnlp 컨테이너에서 태그 추출 (기본 컨테이너 실행)
                 script {
+                    // 기본 jnlp 컨테이너에서 git 태그 추출
                     def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                     env.IMAGE_TAG = commitHash
                     echo "Current Image Tag: ${env.IMAGE_TAG}"
                 }
                 
-                // 2. kaniko 컨테이너로 전환하여 빌드 및 푸시
                 container('kaniko') {
                     sh """
                     /kaniko/executor \
@@ -79,23 +75,26 @@ spec:
 
         stage('Deploy to EKS') {
             steps {
-                // 3. aws/kubectl이 있는 컨테이너로 전환하여 배포
                 container('aws-kubectl') {
+                    // 분리된 두 개의 Credentials(Secret text)를 각각 매핑
                     withCredentials([
-                        usernamePassword(credentialsId: 'aws-credentials-id', // Jenkins에 등록한 AWS Credential ID
-                                         passwordVariable: 'AWS_SECRET_ACCESS_KEY', 
-                                         usernameVariable: 'AWS_ACCESS_KEY_ID')
+                        string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+                        string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
                     ]) {
                         sh """
-                        # kubectl 설치 확인 및 설정
+                        # 1. EKS 접속 설정 업데이트
                         aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
                         
-                        # 이미지 업데이트
-                        kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
+                        # 2. kubectl 바이너리 설치 (최신 안정 버전)
+                        curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x ./kubectl
+                        
+                        # 3. 이미지 업데이트 적용
+                        ./kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
                           ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG}
                         
-                        # 배포 상태 확인
-                        kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
+                        # 4. 배포 상태 모니터링
+                        ./kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
                         """
                     }
                 }
