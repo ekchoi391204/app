@@ -38,9 +38,9 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'frodo'          // 클러스터 이름 반영
-        K8S_DEPLOYMENT_NAME = 'myapp'       // 실제 배포된 Deployment 이름
-        K8S_CONTAINER_NAME = 'myapp'        // Deployment 내 컨테이너 이름
+        EKS_CLUSTER_NAME = 'frodo'
+        K8S_DEPLOYMENT_NAME = 'myapp'
+        K8S_NAMESPACE = 'default'           // 명시적으로 default 지정
         DOCKER_USERNAME = 'ekchoi391204'
         DOCKER_REPO = 'app'
     }
@@ -55,12 +55,10 @@ spec:
         stage('Build and Push Image') {
             steps {
                 script {
-                    // 기본 jnlp 컨테이너에서 git 태그 추출
                     def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                     env.IMAGE_TAG = commitHash
                     echo "Current Image Tag: ${env.IMAGE_TAG}"
                 }
-                
                 container('kaniko') {
                     sh """
                     /kaniko/executor \
@@ -76,25 +74,28 @@ spec:
         stage('Deploy to EKS') {
             steps {
                 container('aws-kubectl') {
-                    // 분리된 두 개의 Credentials(Secret text)를 각각 매핑
                     withCredentials([
                         string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
                         string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
                     ]) {
                         sh """
-                        # 1. EKS 접속 설정 업데이트
+                        # 1. EKS 접속 설정
                         aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
                         
-                        # 2. kubectl 바이너리 설치 (최신 안정 버전)
+                        # 2. kubectl 설치
                         curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                         chmod +x ./kubectl
                         
-                        # 3. 이미지 업데이트 적용
-                        ./kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
-                          ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG}
+                        # 3. 이미지 업데이트 실행 (컨테이너 이름을 찾기 위해 get 연산 활용)
+                        # 만약 컨테이너 이름이 myapp이 아니라면 자동으로 찾아서 업데이트합니다.
+                        CONTAINER_NAME=\$(./kubectl get deployment/${K8S_DEPLOYMENT_NAME} -n ${K8S_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].name}')
                         
-                        # 4. 배포 상태 모니터링
-                        ./kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
+                        ./kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
+                          \${CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG} \
+                          -n ${K8S_NAMESPACE}
+                        
+                        # 4. 배포 상태 확인
+                        ./kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME} -n ${K8S_NAMESPACE}
                         """
                     }
                 }
