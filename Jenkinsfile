@@ -24,10 +24,8 @@ spec:
     - name: jnlp
       image: jenkins/inbound-agent:3355.v388858a_47b_33-3-jdk21
       env:
-        # 1. 외부 접속용 URL (젠킨스 관리 설정과 일치해야 함)
         - name: JENKINS_URL
           value: "http://k8s-jenkins-jenkins-d36603890d-3a5db5674f925c53.elb.ap-northeast-2.amazonaws.com:8080/"
-        # 2. 내부 통신용 터널 (방금 확인한 jenkins-agent 서비스 주소 사용)
         - name: JENKINS_TUNNEL
           value: "jenkins-agent.jenkins.svc.cluster.local:50000"
   volumes:
@@ -43,9 +41,9 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'my-eks-cluster' // 실제 EKS 클러스터 이름으로 수정
+        EKS_CLUSTER_NAME = 'frodo' // 실제 클러스터명으로 변경 (예: eks-cluster)
         K8S_DEPLOYMENT_NAME = 'myapp'       // 실제 배포된 Deployment 이름
-        K8S_CONTAINER_NAME = 'myapp'        // 팟 내 컨테이너 이름
+        K8S_CONTAINER_NAME = 'myapp'        // Deployment 내의 컨테이너 이름
         DOCKER_USERNAME = 'ekchoi391204'
         DOCKER_REPO = 'app'
     }
@@ -59,39 +57,44 @@ spec:
 
         stage('Build and Push Image') {
             steps {
+                // 1. git이 있는 jnlp 컨테이너에서 태그 추출 (기본 컨테이너 실행)
+                script {
+                    def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    env.IMAGE_TAG = commitHash
+                    echo "Current Image Tag: ${env.IMAGE_TAG}"
+                }
+                
+                // 2. kaniko 컨테이너로 전환하여 빌드 및 푸시
                 container('kaniko') {
-                    script {
-                        // Git 짧은 해시를 이미지 태그로 사용
-                        def commitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                        env.IMAGE_TAG = commitHash
-                        
-                        sh """
-                        /kaniko/executor \
-                          --dockerfile=Dockerfile \
-                          --context=${WORKSPACE} \
-                          --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG} \
-                          --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
-                        """
-                    }
+                    sh """
+                    /kaniko/executor \
+                      --dockerfile=Dockerfile \
+                      --context=${WORKSPACE} \
+                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG} \
+                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
+                    """
                 }
             }
         }
 
         stage('Deploy to EKS') {
             steps {
+                // 3. aws/kubectl이 있는 컨테이너로 전환하여 배포
                 container('aws-kubectl') {
-                    // Jenkins Credentials에 등록된 ID가 'aws-credentials-id'라고 가정
                     withCredentials([
-                        usernamePassword(credentialsId: 'aws-credentials-id', 
+                        usernamePassword(credentialsId: 'aws-credentials-id', // Jenkins에 등록한 AWS Credential ID
                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY', 
                                          usernameVariable: 'AWS_ACCESS_KEY_ID')
                     ]) {
                         sh """
+                        # kubectl 설치 확인 및 설정
                         aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
                         
+                        # 이미지 업데이트
                         kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
                           ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.IMAGE_TAG}
                         
+                        # 배포 상태 확인
                         kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
                         """
                     }
