@@ -1,6 +1,7 @@
 pipeline {
     agent {
         kubernetes {
+            cloud 'kubernetes'
             yaml """
 apiVersion: v1
 kind: Pod
@@ -13,16 +14,18 @@ spec:
     - name: kaniko
       image: gcr.io/kaniko-project/executor:latest
       command:
-        - /busybox/cat
+        - cat
       tty: true
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
-    - name: kubectl
-      image: bitnami/kubectl:latest
+
+    - name: deploy
+      image: amazon/aws-cli:2.15.0
       command:
         - cat
       tty: true
+
   volumes:
     - name: docker-config
       secret:
@@ -36,11 +39,11 @@ spec:
 
     environment {
         AWS_REGION = 'ap-northeast-2'
-        EKS_CLUSTER_NAME = 'your-eks-cluster'
-        K8S_DEPLOYMENT_NAME = 'your-deployment'
-        K8S_CONTAINER_NAME = 'your-container'
-        DOCKER_USERNAME = 'ekchoi391204'
-        DOCKER_REPO = 'app'
+        EKS_CLUSTER_NAME = 'frodo'                // 본인 클러스터명
+        K8S_DEPLOYMENT_NAME = 'myapp'             // Deployment 이름
+        K8S_CONTAINER_NAME = 'myapp'              // 컨테이너 이름
+        DOCKER_USERNAME = 'ekchoi391204'          // Docker Hub ID
+        DOCKER_REPO = 'app'                       // 레포 이름
     }
 
     triggers {
@@ -48,13 +51,14 @@ spec:
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Get Commit Message Tag') {
+        stage('Generate Tag') {
             steps {
                 script {
                     def rawMsg = sh(
@@ -67,12 +71,12 @@ spec:
                     }
 
                     env.COMMIT_TAG = rawMsg
-                    echo "COMMIT_TAG=${env.COMMIT_TAG}"
+                    echo "TAG: ${env.COMMIT_TAG}"
                 }
             }
         }
 
-        stage('Build and Push Image with Kaniko') {
+        stage('Build & Push (Kaniko)') {
             steps {
                 container('kaniko') {
                     sh """
@@ -80,7 +84,8 @@ spec:
                         --dockerfile=Dockerfile \
                         --context=${WORKSPACE} \
                         --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG} \
-                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
+                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest \
+                        --cache=true
                     """
                 }
             }
@@ -88,20 +93,33 @@ spec:
 
         stage('Deploy to EKS') {
             steps {
-                container('kubectl') {
+                container('deploy') {
                     withCredentials([
                         string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
                         string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
                     ]) {
                         sh """
-                          aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
+                          aws eks update-kubeconfig \
+                            --name ${EKS_CLUSTER_NAME} \
+                            --region ${AWS_REGION}
+
                           kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
                             ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG}
+
                           kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
                         """
                     }
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo '🚀 CI/CD SUCCESS'
+        }
+        failure {
+            echo '❌ CI/CD FAILED'
         }
     }
 }
