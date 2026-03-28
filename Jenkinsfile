@@ -1,37 +1,23 @@
 pipeline {
     agent {
         kubernetes {
-            cloud 'kubernetes'
             yaml """
 apiVersion: v1
 kind: Pod
-metadata:
-  labels:
-    app: jenkins-kaniko
 spec:
   serviceAccountName: jenkins
   containers:
     - name: kaniko
-      image: gcr.io/kaniko-project/executor:latest
-      command:
-        - /busybox/sh
-      args:
-        - -c
-        - sleep 9999999
+      image: gcr.io/kaniko-project/executor:v1.19.0-debug # debug 버전이 shell 실행에 유리함
+      command: ["/busybox/cat"]
       tty: true
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
-
-    - name: deploy
-      image: amazon/aws-cli:2.15.0
-      command:
-        - sh
-      args:
-        - -c
-        - sleep 9999999
+    - name: aws-kubectl
+      image: amazon/aws-cli:latest # aws cli가 포함된 이미지 사용
+      command: ["cat"]
       tty: true
-
   volumes:
     - name: docker-config
       secret:
@@ -52,10 +38,6 @@ spec:
         DOCKER_REPO = 'app'
     }
 
-    triggers {
-        githubPush()
-    }
-
     stages {
         stage('Checkout') {
             steps {
@@ -63,34 +45,30 @@ spec:
             }
         }
 
-        stage('Generate Tag') {
+        stage('Get Commit Tag') {
             steps {
                 script {
-                    def rawMsg = sh(
-                        script: "git log -1 --pretty=%B | tr -dc '[:alnum:]' | cut -c1-50",
-                        returnStdout: true
-                    ).trim()
-
-                    if (!rawMsg) {
-                        rawMsg = "build${env.BUILD_NUMBER}"
+                    // git log 실패 시 에러 방지를 위해 try-catch 또는 returnStatus 활용
+                    try {
+                        env.COMMIT_TAG = sh(script: "git log -1 --pretty=%B | tr -dc '[:alnum:]' | cut -c1-50", returnStdout: true).trim()
+                    } catch (e) {
+                        env.COMMIT_TAG = "build-${env.BUILD_NUMBER}"
                     }
-
-                    env.COMMIT_TAG = rawMsg
-                    echo "TAG: ${env.COMMIT_TAG}"
+                    if (!env.COMMIT_TAG) env.COMMIT_TAG = "build-${env.BUILD_NUMBER}"
                 }
             }
         }
 
-        stage('Build & Push (Kaniko)') {
+        stage('Build and Push') {
             steps {
                 container('kaniko') {
+                    // --digest-file 등을 추가하면 이미지 추적이 더 용이합니다.
                     sh """
-                      /kaniko/executor \
-                        --dockerfile=${WORKSPACE}/Dockerfile \
-                        --context=${WORKSPACE} \
-                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG} \
-                        --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest \
-                        --cache=true
+                    /kaniko/executor \
+                      --dockerfile=Dockerfile \
+                      --context=${WORKSPACE} \
+                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.COMMIT_TAG} \
+                      --destination=${DOCKER_USERNAME}/${DOCKER_REPO}:latest
                     """
                 }
             }
@@ -98,36 +76,26 @@ spec:
 
         stage('Deploy to EKS') {
             steps {
-                container('deploy') {
+                container('aws-kubectl') {
                     withCredentials([
-                        string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-                        string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+                        usernamePassword(credentialsId: 'aws-credentials-id', 
+                                         passwordVariable: 'AWS_SECRET_ACCESS_KEY', 
+                                         usernameVariable: 'AWS_ACCESS_KEY_ID')
                     ]) {
                         sh """
-                          curl -LO https://dl.k8s.io/release/v1.29.14/bin/linux/amd64/kubectl
-                          install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-                          aws eks update-kubeconfig \
-                            --name ${EKS_CLUSTER_NAME} \
-                            --region ${AWS_REGION}
-
-                          kubectl set image deployment/${K8S_DEPLOYMENT_NAME} \
-                            ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${COMMIT_TAG}
-
-                          kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
+                        # kubectl 설치 (aws-cli 이미지에는 kubectl이 없을 수 있으므로 설치 로직 필요 또는 병합 이미지 사용)
+                        # 여기서는 클러스터 접근 권한 설정만 수행
+                        aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
+                        
+                        # kubectl 명령 실행 (만약 aws-cli 이미지에 kubectl이 없다면 위 Pod 정의에서 이미지를 바꿀 것)
+                        curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl
+                        ./kubectl set image deployment/${K8S_DEPLOYMENT_NAME} ${K8S_CONTAINER_NAME}=${DOCKER_USERNAME}/${DOCKER_REPO}:${env.COMMIT_TAG}
+                        ./kubectl rollout status deployment/${K8S_DEPLOYMENT_NAME}
                         """
                     }
                 }
             }
-        }
-    }
-
-    post {
-        success {
-            echo 'CI/CD SUCCESS'
-        }
-        failure {
-            echo 'CI/CD FAILED'
         }
     }
 }
