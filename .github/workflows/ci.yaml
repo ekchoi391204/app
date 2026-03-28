@@ -1,69 +1,69 @@
-name: CI
+# name: CI
 
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '.github/workflows/*'  
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths-ignore:
+#       - '.github/workflows/*'  
 
-jobs:
-  build-and-push: 
-    runs-on: ubuntu-latest
+# jobs:
+#   build-and-push: 
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout Code
+#         uses: actions/checkout@v4
 
-      # 1. 커밋 메시지에서 태그 추출 (특수문자 제거 및 길이 제한)
-      - name: Get Commit Message for Tag
-        id: vars
-        run: |
-          # 태그로 사용하기 부적절한 문자를 제거하고 50자로 제한
-          RAW_MSG=$(git log -1 --pretty=%B | tr -dc '[:alnum:]' | cut -c1-50)
-          echo "COMMIT_TAG=${RAW_MSG}" >> $GITHUB_ENV
+#       # 1. 커밋 메시지에서 태그 추출 (특수문자 제거 및 길이 제한)
+#       - name: Get Commit Message for Tag
+#         id: vars
+#         run: |
+#           # 태그로 사용하기 부적절한 문자를 제거하고 50자로 제한
+#           RAW_MSG=$(git log -1 --pretty=%B | tr -dc '[:alnum:]' | cut -c1-50)
+#           echo "COMMIT_TAG=${RAW_MSG}" >> $GITHUB_ENV
 
-      # 2. Docker Hub 로그인
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+#       # 2. Docker Hub 로그인
+#       - name: Login to Docker Hub
+#         uses: docker/login-action@v3
+#         with:
+#           username: ${{ secrets.DOCKER_USERNAME }}
+#           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 추가: Buildx builder 생성
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+#       # 추가: Buildx builder 생성
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
       
-      # 3. 이미지 빌드 및 푸시 (DOCKER_REPO 시크릿 사용)
-      - name: Build and Push Docker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:${{ env.COMMIT_TAG }}
-            ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max  
+#       # 3. 이미지 빌드 및 푸시 (DOCKER_REPO 시크릿 사용)
+#       - name: Build and Push Docker Image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: .
+#           push: true
+#           tags: |
+#             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:${{ env.COMMIT_TAG }}
+#             ${{ secrets.DOCKER_USERNAME }}/${{ secrets.DOCKER_REPO }}:latest
+#           cache-from: type=gha
+#           cache-to: type=gha,mode=max  
 
-      # # 4. AWS 자격 증명 설정
-      # - name: Configure AWS Credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      #     aws-region: ${{ secrets.AWS_REGION }}
+#       # # 4. AWS 자격 증명 설정
+#       # - name: Configure AWS Credentials
+#       #   uses: aws-actions/configure-aws-credentials@v4
+#       #   with:
+#       #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#       #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#       #     aws-region: ${{ secrets.AWS_REGION }}
 
-      # # 5. EKS kubeconfig 업데이트
-      # - name: Update Kubeconfig
-      #   run: |
-      #     aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+#       # # 5. EKS kubeconfig 업데이트
+#       # - name: Update Kubeconfig
+#       #   run: |
+#       #     aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
 
-      # # 6. EKS Deployment 이미지 업데이트
-      # - name: Deploy to EKS
-      #   run: |
-      #     # deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}내의 특정 컨테이너(K8S_CONTAINER_NAME) 이미지를 교체
-      #     kubectl set image deployment/${{ secrets.K8S_DEPLOYMENT_NAME }} ${{ secrets.K8S_CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/app:${{ env.COMMIT_TAG }}
+#       # # 6. EKS Deployment 이미지 업데이트
+#       # - name: Deploy to EKS
+#       #   run: |
+#       #     # deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}내의 특정 컨테이너(K8S_CONTAINER_NAME) 이미지를 교체
+#       #     kubectl set image deployment/${{ secrets.K8S_DEPLOYMENT_NAME }} ${{ secrets.K8S_CONTAINER_NAME }}=${{ secrets.DOCKER_USERNAME }}/app:${{ env.COMMIT_TAG }}
           
-      #     # 배포 완료 대기 및 상태 확인
-      #     kubectl rollout status deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}
+#       #     # 배포 완료 대기 및 상태 확인
+#       #     kubectl rollout status deployment/${{ secrets.K8S_DEPLOYMENT_NAME }}
