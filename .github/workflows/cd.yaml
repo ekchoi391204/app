@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Helm repository
         uses: actions/checkout@v4
         with:
-          repository: ekchoi391204/app-helm2 # 변경 필요
+          repository: ekchoi391204/app-helm # 변경 필요
           ref: main
           token: ${{ secrets.GH_TOKEN }}
 
